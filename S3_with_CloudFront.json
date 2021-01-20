@@ -1,0 +1,105 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description" : "This CloudFormation Template provides S3 with CloudFront access. Can be used to deploy a web application",
+  
+  "Parameters": {
+
+    "StackName": {
+      "Description": "The name of your stack to apply Tags",
+      "Type": "String",
+      "Default": "web-application-stack"
+    },
+
+    "BucketWebApplication": {
+      "Description": "The S3 bucket name to store the web application",
+      "Type": "String",
+      "Default": "mybucket-web-application"
+    }
+  },
+  
+  "Resources": {
+
+    "S3BucketWebApplication": {
+      "Type": "AWS::S3::Bucket",
+      
+      "Properties": {
+     
+        "BucketName": { "Ref": "BucketWebApplication" },
+
+        "Tags": [
+          {
+            "Key": { "Ref": "StackName" },
+            "Value": { "Ref": "BucketWebApplication" }
+          }
+        ]
+      }
+    },
+
+    "BucketWebApplicationPolicy": {
+      "Type" : "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket" : { "Ref" : "BucketWebApplication" },
+        "PolicyDocument": {
+          "Id" : "MyPolicy",
+          "Statement": [
+            {
+              "Sid" : "Grant a CloudFront Origin Identity access to support private content",
+              "Effect" : "Allow",
+              "Action" : [ "s3:GetObject" ],
+              "Principal": {
+                "AWS": { "Fn::Sub": "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginAccessIdentity}" }
+              },
+              "Resource": { "Fn::Join" : [ "", [ "arn:aws:s3:::", { "Ref" : "BucketWebApplication" } , "/*" ] ] }
+            }
+          ]
+        }
+      }
+    },
+
+    "CloudFrontOriginAccessIdentity": {
+      "Type": "AWS::CloudFront::CloudFrontOriginAccessIdentity",
+      "Properties": {
+        "CloudFrontOriginAccessIdentityConfig": {
+          "Comment": "Web Application Origin Identity"
+        }
+      }
+    },
+
+    "CloudFrontDistribution": {
+      "Type": "AWS::CloudFront::Distribution",
+      "DependsOn": "CloudFrontOriginAccessIdentity",
+
+      "Properties": {
+        "DistributionConfig": {
+
+          "Origins": [ {
+            "DomainName": { "Fn::Sub": "${BucketWebApplication}.s3.amazonaws.com" },
+            "Id": { "Fn::Sub": "S3-${BucketWebApplication}" }, 
+            "S3OriginConfig": {
+              "OriginAccessIdentity" : { 
+                "Fn::Sub": "origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}"
+              }
+            }
+          }],
+          
+          "Enabled": "true",
+          "DefaultRootObject": "index.html",
+          "DefaultCacheBehavior": {
+            
+            "AllowedMethods": [ "GET", "HEAD"],
+            "TargetOriginId": { "Fn::Sub": "S3-${BucketWebApplication}" },
+            "ForwardedValues": {
+              "QueryString": "false",
+              "Cookies": { "Forward": "none" }
+            },
+            "ViewerProtocolPolicy": "redirect-to-https"
+          },
+          "ViewerCertificate": {
+            "CloudFrontDefaultCertificate": "true"
+          }
+
+        }
+      }
+    }
+  }
+}
