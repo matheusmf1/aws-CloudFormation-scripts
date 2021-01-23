@@ -1,0 +1,111 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description" : "This CloudFormation Template provides a Lambda Function deployed with code storaged within a specific S3 bucket in .zip type. Also provides a Lambda layer storaged at the same S3 bucket. You should create the S3 bucket with in the code and layer and pass it's name into the CloudFormation parameters",
+  
+  "Parameters": {
+
+    "StackName": {
+      "Description": "The name of your stack to apply Tags",
+      "Type": "String",
+      "Default": "test-stack"
+    },
+
+    "BucketLambdaCode": {
+      "Description": "The S3 bucket name to store all Lambda functions",
+      "Type": "String"
+    },
+
+
+    "BucketLambdaCodeFolder": {
+      "Description": "The folder name inside the above S3 bucket to store all Lambda functions",
+      "Type": "String",
+      "Default": "lambda_code"
+    },
+
+
+    "BucketLambdaCodeLayerFolder": {
+      "Description": "The folder name inside the above S3 bucket to store all Lambda layers",
+      "Type": "String",
+      "Default": "lambda_layer"
+    },
+
+    "CodeZIPFileName": {
+      "Description": "The code file name .zip",
+      "Type": "String",
+      "Default": "upload_xml_s3.zip"
+    },
+
+    "LayerZIPFileName": {
+      "Description": "The layer file name .zip",
+      "Type": "String",
+      "Default": "requests_lambda_layer.zip"
+    }
+
+    
+  },
+  
+  "Resources": {
+
+    "IAMRoleBasicLambda": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+
+        "RoleName": "laPolicia",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": {
+              "Service": "lambda.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole"
+          }]
+        },
+
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/AmazonS3FullAccess",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ]
+
+      }
+    },
+
+
+    "LambdaLayerRequests": {
+      "Type": "AWS::Lambda::LayerVersion",
+      "Properties": {
+        "CompatibleRuntimes": [ "python3.7" ],
+        "Content": {
+          "S3Bucket": { "Ref": "BucketLambdaCode" },
+          "S3Key": { "Fn::Sub": "${BucketLambdaCodeLayerFolder}/${LayerZIPFileName}" }
+        }
+      }
+    },
+
+    "LambdaUploadXMLS3" : {
+      "Type": "AWS::Lambda::Function",
+      "DependsOn": [ "IAMRoleBasicLambda", "LambdaLayerRequests" ],
+      "Properties": {
+
+        "Code": {
+          "S3Bucket" : { "Ref": "BucketLambdaCode" },
+          "S3Key": { "Fn::Sub": "${BucketLambdaCodeFolder}/${CodeZIPFileName}" }
+        },
+        
+        "FunctionName": "upload_xml_s3_test",
+        "Description": "Lambda to upload XML to S3",
+        "Handler": "lambda_function.lambda_handler",
+        "MemorySize": 128,
+        "Timeout": 10,
+        "PackageType": "Zip",
+        "Runtime": "python3.7",
+        "Role": { "Fn::GetAtt" : ["IAMRoleBasicLambda", "Arn"] },
+
+        "Layers": [ { "Ref": "LambdaLayerRequests" } ]
+      }
+      
+    }
+
+  }
+
+}
