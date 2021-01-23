@@ -1,0 +1,134 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description" : "This CloudFormation Template provides the creation of a S3 bucket with folder",
+  
+  "Parameters": {
+
+    "StackName": {
+      "Description": "The name of your stack to apply Tags",
+      "Type": "String",
+      "Default": "test-stack"
+    },
+
+    "BucketData": {
+      "Description": "The S3 bucket name to store all XML and its derived data",
+      "Type": "String",
+      "Default": "test-matheus-data"
+    },
+
+    "DirsToCreate": {
+      "Description": "The dirs name separeted with comma \"Dir1,Dir2\"",
+      "Type": "String",
+      "Default": "test1,test2,test3"
+    }
+
+    
+  },
+  
+  "Resources": {
+
+    "S3BucketData": {
+      "Type": "AWS::S3::Bucket",
+      
+      "Properties": {
+     
+        "BucketName": { "Ref": "BucketData" },
+
+        "Tags": [
+          {
+            "Key": { "Ref": "StackName" },
+            "Value": { "Ref": "BucketData" }
+          }
+        ]
+      }
+    },
+
+    "S3CustomResource": {
+      "Type": "Custom::S3CustomResource",
+      
+      "Properties": {
+        
+        "ServiceToken": { "Fn::GetAtt" : [ "S3PutObjectFunction", "Arn"] },
+        "the_bucket": { "Ref": "S3BucketData" },
+        "dirs_to_create": { "Ref": "DirsToCreate" }
+      }
+    },
+
+    "S3PutObjectFunction": {
+      "Type": "AWS::Lambda::Function",
+      "DependsOn": [ "IAMRoleBasicLambda", "S3BucketData" ],
+      "Properties": {
+        "Description": "Create dirs into this S3 Bucket",
+        "FunctionName": "S3CreateBucketDirs",
+        "Handler": "index.lambda_handler",
+        "Role": { "Fn::GetAtt" : ["IAMRoleBasicLambda", "Arn"] },
+        "Timeout": 360,
+        "Runtime": "python3.7",
+
+        "Code": {
+          "ZipFile": { "Fn::Join" : ["\n", [
+            "import boto3",
+            "import cfnresponse",
+            "def lambda_handler(event, context):",
+
+            "   the_event = event['RequestType']",
+            "   print(\"The event is: \", str(the_event))",
+            "   response_data = {}",
+            "   s3 = boto3.client('s3')",
+            "   print( event )",
+
+            "   the_bucket = event['ResourceProperties']['the_bucket']",
+            "   dirs = event['ResourceProperties']['dirs_to_create']",       
+            "   dirs_to_create = dirs.split( \",\" )",     
+            
+            "   try:",
+            
+            "       if the_event in ( 'Create', 'Update' ):",
+            "           for dir_name in dirs_to_create:",
+            "               print(\"Creating: \", str(dir_name))",
+            "               s3.put_object( Bucket = the_bucket, Key = ( dir_name + '/' ) )",
+            
+            "       elif the_event == 'Delete':",
+            "           print( \"Deleting S3 Content...\" )",
+            "           botoResourse = boto3.resource('s3')",
+            "           botoResourse.Bucket(str(the_bucket)).objects.all().delete()",
+            "           print(\"Deleting Bucket data: \" )",
+
+            "       cfnresponse.send(event,context,cfnresponse.SUCCESS,response_data)",
+
+            "   except Exception as e:",
+            "       print(\"Execution failed...\")",
+            "       print(str(e))",
+            "       response_data['Data'] = str(e)",
+            "       cfnresponse.send(event,context,cfnresponse.FAILED,response_data)"
+          ]]}
+        }
+      }
+    },
+
+    "IAMRoleBasicLambda": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+
+        "RoleName": "laPolicia",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": {
+              "Service": "lambda.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole"
+          }]
+        },
+
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/AmazonS3FullAccess",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ]
+
+      }
+    }
+  }
+
+}
