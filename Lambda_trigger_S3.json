@@ -1,0 +1,207 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description" : "This CloudFormation Template provides a Lambda function triggered by an Object create event on S3 on a specific folder",
+  
+  "Parameters": {
+
+    "StackName": {
+      "Description": "The name of your stack to apply Tags",
+      "Type": "String",
+      "Default": "test-stack"
+    },
+
+    "BucketData": {
+      "Description": "The S3 bucket name to store all XML and its derived data",
+      "Type": "String",
+      "Default": "test-matheus-data"
+    },
+
+    "BucketLambdaCode": {
+      "Description": "The S3 bucket name to store all Lambda functions",
+      "Type": "String",
+      "Default": "bid-machine-lambda-code"
+    },
+
+
+    "BucketLambdaCodeFolder": {
+      "Description": "The folder name inside the above S3 bucket to store all Lambda functions",
+      "Type": "String",
+      "Default": "lambda_code"
+    },
+
+    "CodeZIPFileName": {
+      "Description": "The code file name .zip",
+      "Type": "String",
+      "Default": "xml_dict.zip"
+    },
+
+    "DirsToCreate": {
+      "Description": "The dirs name separeted with comma \"Dir1,Dir2\"",
+      "Type": "String",
+      "Default": "XML,JSON,refined_data"
+    }
+    
+  },
+  
+  "Resources": {
+
+    "S3BucketData": {
+      "Type": "AWS::S3::Bucket",
+
+      "DependsOn": [ "S3InvokeLambdaPermission" ],
+      "Properties": {
+     
+        "BucketName": { "Ref": "BucketData" },
+        "Tags": [
+          {
+            "Key": { "Ref": "StackName" },
+            "Value": { "Ref": "BucketData" }
+          }
+        ],
+
+        "NotificationConfiguration": {
+          "LambdaConfigurations": [
+            {
+              "Event": "s3:ObjectCreated:*",
+              "Filter": {
+                "S3Key": {
+                  "Rules": [
+                    { 
+                      "Name": "prefix",
+                      "Value": "XML/"
+                   }
+                  ]
+                }
+              },
+              "Function": { "Fn::GetAtt": [ "LambdaFunction", "Arn" ] }
+            }
+          ]
+        }
+      }
+    },
+
+    "S3InvokeLambdaPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": { "Ref": "LambdaFunction" },
+        "Principal": "s3.amazonaws.com",
+        "SourceAccount": {"Ref": "AWS::AccountId"},
+        "SourceArn": { "Fn::Sub": "arn:aws:s3:::${BucketData}" }
+      }
+    },
+
+    "S3CustomResource": {
+      "Type": "Custom::S3CustomResource",
+      
+      "Properties": {
+        
+        "ServiceToken": { "Fn::GetAtt" : [ "S3PutObjectFunction", "Arn"] },
+        "the_bucket": { "Ref": "S3BucketData" },
+        "dirs_to_create": { "Ref": "DirsToCreate"  }
+      }
+    },
+    
+    "S3PutObjectFunction": {
+      "Type": "AWS::Lambda::Function",
+      "DependsOn": [ "IAMRoleBasicLambda", "S3BucketData" ],
+      "Properties": {
+        "Description": "Create dirs into this S3 Bucket",
+        "FunctionName": "S3CreateBucketDirs2",
+        "Handler": "index.lambda_handler",
+        "Role": { "Fn::GetAtt" : ["IAMRoleBasicLambda", "Arn"] },
+        "Timeout": 360,
+        "Runtime": "python3.7",
+    
+        "Code": {
+          "ZipFile": { "Fn::Join" : ["\n", [
+            "import boto3",
+            "import cfnresponse",
+            "def lambda_handler(event, context):",
+    
+            "   the_event = event['RequestType']",
+            "   print(\"The event is: \", str(the_event))",
+            "   response_data = {}",
+            "   s3 = boto3.client('s3')",
+            "   print( event )",
+    
+            "   the_bucket = event['ResourceProperties']['the_bucket']",
+            "   dirs = event['ResourceProperties']['dirs_to_create']",       
+            "   dirs_to_create = dirs.split( \",\" )",       
+            
+            "   try:",
+            
+            "       if the_event in ( 'Create', 'Update' ):",
+            "           for dir_name in dirs_to_create:",
+            "               print(\"Creating: \", str(dir_name))",
+            "               s3.put_object( Bucket = the_bucket, Key = ( dir_name + '/' ) )",
+            
+            "       elif the_event == 'Delete':",
+            "           print( \"Deleting S3 Content...\" )",
+            "           botoResourse = boto3.resource('s3')",
+            "           botoResourse.Bucket(str(the_bucket)).objects.all().delete()",
+            "           print(\"Deleting Bucket data: \" )",
+    
+            "       cfnresponse.send(event,context,cfnresponse.SUCCESS,response_data)",
+    
+            "   except Exception as e:",
+            "       print(\"Execution failed...\")",
+            "       print(str(e))",
+            "       response_data['Data'] = str(e)",
+            "       cfnresponse.send(event,context,cfnresponse.FAILED,response_data)"
+          ]]}
+        }
+      }
+    },
+
+    "IAMRoleBasicLambda": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+
+        "RoleName": "laPolicia",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": {
+              "Service": "lambda.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole"
+          }]
+        },
+
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/AmazonS3FullAccess",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ]
+
+      }
+    },
+
+    "LambdaFunction" : {
+      "Type": "AWS::Lambda::Function",
+      "DependsOn": [ "IAMRoleBasicLambda" ],
+      "Properties": {
+        "Code": {
+          "S3Bucket" : { "Ref": "BucketLambdaCode" },
+          "S3Key": { "Fn::Sub": "${BucketLambdaCodeFolder}/${CodeZIPFileName}" }
+        },
+        
+        "FunctionName": "myLambda_test",
+        "Description": "This is my lambda test",
+        "Handler": "lambda_function.lambda_handler",
+        "MemorySize": 128,
+        "Timeout": 10,
+        "PackageType": "Zip",
+        "Runtime": "python3.7",
+        "Role": { "Fn::GetAtt" : ["IAMRoleBasicLambda", "Arn"] },
+
+        "Environment": {
+          "Variables": {
+            "bucketName" : { "Ref": "BucketData" }
+          }
+        }
+      }  
+    }
+  }
+}
