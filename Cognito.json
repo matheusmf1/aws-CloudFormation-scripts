@@ -1,0 +1,147 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description" : "This CloudFormation Template provides the code to create a Cognito UserPool and also a Lambda to create and update a configuration file with cognito UserPool, Client, Region and Bucket",
+  
+  "Parameters": {
+
+    "BucketWebApplication": {
+      "Description": "The S3 bucket name to store the web application",
+      "Type": "String",
+      "Default": "bid-machine-web-application"
+    },
+
+    "BucketConfigCodeFile": {
+      "Description": "The path to the config code to receive the cognito UserPool, Client, Region and Bucket",
+      "Type": "String",
+      "Default": "js/config.js"
+    }
+  },
+  
+  "Resources": {
+
+    "IAMRoleBasicLambda": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+
+        "RoleName": "laPolicia",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "lambda.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/AmazonS3FullAccess",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ]
+      }
+    },
+
+    "CognitoUserPool": {
+      "Type": "AWS::Cognito::UserPool",
+      "Properties": {
+        "UserPoolName": "testCognitoCF",
+        "AliasAttributes": [ "email" ],
+        "AutoVerifiedAttributes": [ "email" ]
+      }
+    },
+
+    "CognitoUserPoolClient": {
+      "Type": "AWS::Cognito::UserPoolClient",
+      "Properties": {
+        "ClientName" : "testClientCF",
+        "UserPoolId": { "Ref": "CognitoUserPool" },
+        "GenerateSecret": false
+      }
+    },
+
+    "LambdaUpdateCognitoConfigS3CustomResources": {
+      "Type": "Custom::S3CustomResource",
+      
+      "Properties": { 
+        "ServiceToken": { "Fn::GetAtt" : [ "LambdaUpdateCognitoConfigS3", "Arn"] },
+        "UserPool": { "Ref": "CognitoUserPool" },
+        "Client": { "Ref": "CognitoUserPoolClient" },
+        "Region": { "Ref": "AWS::Region" },
+        "Bucket": { "Ref": "BucketWebApplication" },
+        "filePath": { "Ref": "BucketConfigCodeFile" }
+      }
+    },
+
+    "LambdaUpdateCognitoConfigS3": {
+      "Type": "AWS::Lambda::Function",
+      "DependsOn": [ "IAMRoleBasicLambda" ],
+      "Properties": {
+
+        "Description": "Update config.js file from web application bucket",
+        "FunctionName": "UpdateConfigS3WebFile",
+        "Handler": "index.lambda_handler",
+        "Role": { "Fn::GetAtt" : ["IAMRoleBasicLambda", "Arn"] },
+        "Timeout": 120,
+        "Runtime": "python3.7",
+
+        "Code": {
+          "ZipFile": { "Fn::Join" : ["\n", [
+            
+            "import boto3",
+            "import cfnresponse",
+            "import json\n",
+
+            "s3 = boto3.resource('s3')\n",
+
+            "def create( properties, physical_id ):\n",
+            "   userPoolId = properties['UserPool']",
+            "   clientId = properties['Client']",
+            "   region = properties['Region']",
+            "   bucket = properties['Bucket']",
+            "   filePath = properties['filePath']\n",
+
+            "   config_content = \"\"\" var _config = { cognito: { userPoolId: %s, userPoolClientId: '%s', region: '%s' }, api: { invokeUrl: '' } } \"\"\" ",
+            "   config_content = config_content % (userPoolId, clientId, region)",
+            "   config = s3.Object(bucket,f'{filePath}')",
+            "   config.put(Body=config_content)\n",
+            "   return cfnresponse.SUCCESS, None\n",
+
+            "def update( properties, physical_id ):",
+            "   return create(properties, physical_id)\n",
+
+            "def delete( properties, physical_id ):",
+            "   return cfnresponse.SUCCESS, physical_id\n",
+
+            "def lambda_handler(event, context):\n",
+
+            "   print(\"UpdateConfigS3WebFile\")",
+            "   print(event)",
+            "   status = cfnresponse.FAILED",       
+            "   new_physical_id = None\n",              
+
+            "   try:\n",
+            
+            "       properties = event.get('ResourceProperties')",
+            "       physical_id = event.get('PhysicalResourceId')",
+            "       status, new_physical_id = { ",
+            "           'Create': create,",
+            "           'Update': update,",
+            "           'Delete': delete,",
+            "       }.get(event['RequestType'], lambda x, y: (cfnresponse.FAILED, None))(properties, physical_id)\n",
+            
+            "   except Exception as e:",
+            "       print(\"Execution failed...\")",
+            "       print(str(e))",
+            "       status = cfnresponse.FAILED",
+            "       cfnresponse.send(event, context, status, {}, new_physical_id)\n",
+            "   finally:",
+            "       cfnresponse.send(event, context, status, {}, new_physical_id)"
+          ]]}
+        }
+
+      }
+    }
+
+  }
+
+}
