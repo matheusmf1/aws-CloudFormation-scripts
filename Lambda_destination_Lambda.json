@@ -1,0 +1,132 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description" : "This CloudFormation Template provides the code to create a lambda with another lambda as destination",
+  
+  "Parameters": {
+
+    "BucketLambdaCode": {
+      "Description": "The S3 bucket name to store all Lambda functions",
+      "Type": "String",
+      "Default": "bid-machine-lambda-code"
+    },
+
+    "Code1ZIPFileName": {
+      "Description": "The code 1 file name .zip",
+      "Type": "String",
+      "Default": "function1.zip"
+    },
+
+    "Code2ZIPFileName": {
+      "Description": "The code to be added into code 1 destination file name .zip",
+      "Type": "String",
+      "Default": "function2.zip"
+    }
+
+  },
+  
+  "Resources": {
+
+    "IAMRoleBasicLambda": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+
+        "RoleName": "laPolicia",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "lambda.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/AmazonS3FullAccess",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ]
+      }
+    },
+
+
+    "IAMRoleLambdaDestinations": {
+      "Type": "AWS::IAM::ManagedPolicy",
+      "DependsOn": [ "LambdaFunction1" ],
+      "Properties": {
+        
+        "ManagedPolicyName": "laPoliciaDestination",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": "lambda:InvokeFunction",
+              "Resource": [
+                { "Fn::GetAtt": [ "LambdaFunction2", "Arn" ] }
+              ]
+            }
+          ]
+        },
+        "Roles": [ { "Ref": "IAMRoleBasicLambda" } ]
+      }
+    },
+
+    "LambdaFunction1" : {
+      "Type": "AWS::Lambda::Function",
+      "DependsOn": [ "IAMRoleBasicLambda" ],
+      "Properties": {
+
+        "Code": {
+          "S3Bucket" : { "Ref": "BucketLambdaCode" },
+          "S3Key": { "Fn::Sub": "${Code1ZIPFileName}" }
+        },
+        
+        "FunctionName": "lambda_function1",
+        "Description": "Lambda function whose call another lambda",
+        "Handler": "lambda_function.lambda_handler",
+        "MemorySize": 128,
+        "Timeout": 10,
+        "PackageType": "Zip",
+        "Runtime": "python3.7",
+        "Role": { "Fn::GetAtt" : ["IAMRoleBasicLambda", "Arn"] }
+      }
+      
+    },
+
+    "LambdaFunction2": {
+      "Type": "AWS::Lambda::Function",
+      "DependsOn": [ "IAMRoleBasicLambda" ],
+      "Properties": {
+        "Code": {
+          "S3Bucket" : { "Ref": "BucketLambdaCode" },
+          "S3Key": { "Fn::Sub": "${Code1ZIPFileName}" }
+        },
+        
+        "FunctionName": "lambda_function2",
+        "Description": "Lambda to be called as destination",
+        "Handler": "lambda_function.lambda_handler",
+        "MemorySize": 128,
+        "Timeout": 10,
+        "PackageType": "Zip",
+        "Runtime": "python3.7",
+        "Role": { "Fn::GetAtt" : ["IAMRoleBasicLambda", "Arn"] }
+      }
+    },
+
+    "LambdaXMLToJSONDestination": {
+      "Type": "AWS::Lambda::EventInvokeConfig",
+      "DependsOn": "IAMRoleLambdaDestinations",
+      "Properties": {
+        "DestinationConfig": {
+          "OnSuccess": {
+            "Destination": { "Fn::GetAtt" : ["LambdaFunction2", "Arn"] }
+          }
+        },
+    
+        "FunctionName": { "Ref": "LambdaFunction1" },
+        "MaximumRetryAttempts": 1,
+        "Qualifier": "$LATEST"
+      }
+    }
+  }
+}
