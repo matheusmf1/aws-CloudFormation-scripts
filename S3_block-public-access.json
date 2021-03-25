@@ -1,0 +1,71 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description" : "This CloudFormation Template provides the creation of a S3 bucket",
+  
+  "Parameters": {
+
+    "StackName": {
+      "Description": "The name of your stack to apply Tags",
+      "Type": "String",
+      "Default": "test-stack"
+    },
+
+    "BucketData": {
+      "Description": "The S3 bucket name to store all XML and its derived data",
+      "Type": "String",
+      "Default": "test-matheus-data"
+    }
+
+  },
+  
+  "Resources": {
+
+    "S3BucketData": {
+      "Type": "AWS::S3::Bucket",
+      
+      "Properties": {
+     
+        "BucketName": { "Ref": "BucketData" },
+
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls" : true,
+          "BlockPublicPolicy" : true,
+          "IgnorePublicAcls" : true,
+          "RestrictPublicBuckets" : true
+        },
+
+        "Tags": [
+          {
+            "Key": { "Ref": "StackName" },
+            "Value": { "Ref": "BucketData" }
+          }
+        ]
+      }
+    },
+
+    "IAMRoleBasicLambda": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+
+        "RoleName": "laPolicia",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": {
+              "Service": "lambda.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole"
+          }]
+        },
+
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/AmazonS3FullAccess",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ]
+
+      }
+    }
+  }
+
+}
